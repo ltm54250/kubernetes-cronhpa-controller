@@ -38,7 +38,6 @@ type Job struct {
 	// job will only run once if enabled.
 	RunOnce    bool  `json:"runOnce,omitempty"`
 	TargetSize int32 `json:"targetSize"`
-	MinSize    int32 `json:"minSize"`
 	MaxSize    int32 `json:"maxSize"`
 }
 
@@ -65,6 +64,8 @@ type Condition struct {
 	Schedule string `json:"schedule"`
 
 	TargetSize int32 `json:"targetSize"`
+
+	MaxSize int32 `json:"maxSize"`
 
 	RunOnce bool `json:"runOnce"`
 

@@ -57,7 +57,6 @@ type CronJobHPA struct {
 	id           string
 	name         string
 	DesiredSize  int32
-	MinSize      int32
 	MaxSize      int32
 	Plan         string
 	RunOnce      bool
@@ -179,28 +178,22 @@ func (ch *CronJobHPA) ScaleHPA() (msg string, err error) {
 	}
 
 	updateHPA := false
-
-	if (ch.MinSize <= ch.MaxSize) && (ch.MinSize > 0) {
-		if ch.MinSize != *hpa.Spec.MinReplicas {
-			*hpa.Spec.MinReplicas = ch.MinSize
+	if (ch.DesiredSize <= ch.MaxSize) && (ch.DesiredSize >= 0) {
+		if (ch.DesiredSize != 0) && (ch.DesiredSize != *hpa.Spec.MinReplicas) {
+			*hpa.Spec.MinReplicas = ch.DesiredSize
 			updateHPA = true
+		} else {
+			log.Errorf("skip set min target %s %s in %s namespace,please check desiredsize or no need change", ch.TargetRef.RefKind, ch.TargetRef.RefName, ch.TargetRef.RefNamespace)
 		}
-		if ch.MaxSize != hpa.Spec.MaxReplicas {
+		if (ch.MaxSize != hpa.Spec.MaxReplicas) && (ch.MaxSize != 0) {
 			hpa.Spec.MaxReplicas = ch.MaxSize
-			updateHPA = true
-		}
-		if ch.DesiredSize > hpa.Spec.MaxReplicas {
-			hpa.Spec.MaxReplicas = ch.DesiredSize
-			*hpa.Spec.MinReplicas = ch.DesiredSize
-			updateHPA = true
-		}
 
-		if ch.DesiredSize <= hpa.Spec.MaxReplicas {
-			*hpa.Spec.MinReplicas = ch.DesiredSize
 			updateHPA = true
+		} else {
+			log.Errorf("skip set max target %s %s in %s namespace,please check maxsize or no need change", ch.TargetRef.RefKind, ch.TargetRef.RefName, ch.TargetRef.RefNamespace)
 		}
 	} else {
-		log.Errorf("failed to set target %s %s in %s namespace,please check minsize or maxsize or desiredsize", ch.TargetRef.RefKind, ch.TargetRef.RefName, ch.TargetRef.RefNamespace)
+		log.Errorf("failed to set target %s %s in %s namespace,please check maxsize or desiredsize", ch.TargetRef.RefKind, ch.TargetRef.RefName, ch.TargetRef.RefNamespace)
 	}
 
 	if updateHPA {
@@ -211,13 +204,17 @@ func (ch *CronJobHPA) ScaleHPA() (msg string, err error) {
 	}
 
 	msg = fmt.Sprintf("current replicas:%d, desired replicas:%d.", scale.Spec.Replicas, ch.DesiredSize)
-
-	scale.Spec.Replicas = int32(ch.DesiredSize)
-	_, err = ch.scaler.Scales(ch.TargetRef.RefNamespace).Update(context.Background(), targetGR, scale, metav1.UpdateOptions{})
-	if err != nil {
-		return "", fmt.Errorf("failed to scale %s %s in %s namespace to %d, because of %v", ch.TargetRef.RefKind, ch.TargetRef.RefName, ch.TargetRef.RefNamespace, ch.DesiredSize, err)
+	if ch.DesiredSize > 0 {
+		scale.Spec.Replicas = int32(ch.DesiredSize)
+		_, err = ch.scaler.Scales(ch.TargetRef.RefNamespace).Update(context.Background(), targetGR, scale, metav1.UpdateOptions{})
+		if err != nil {
+			return "", fmt.Errorf("failed to scale %s %s in %s namespace to %d, because of %v", ch.TargetRef.RefKind, ch.TargetRef.RefName, ch.TargetRef.RefNamespace, ch.DesiredSize, err)
+		} else {
+			return msg, nil
+		}
+	} else {
+		return fmt.Sprintf("current replicas:%d, desired replicas:%d, skip scale", scale.Spec.Replicas, ch.DesiredSize), nil
 	}
-	return msg, nil
 }
 
 func (ch *CronJobHPA) ScalePlainRef() (msg string, err error) {
@@ -296,7 +293,6 @@ func CronHPAJobFactory(instance *v1beta1.CronHorizontalPodAutoscaler, job v1beta
 		Plan:         job.Schedule,
 		DesiredSize:  job.TargetSize,
 		MaxSize:      job.MaxSize,
-		MinSize:      job.MinSize,
 		RunOnce:      job.RunOnce,
 		scaler:       scaler,
 		mapper:       mapper,
