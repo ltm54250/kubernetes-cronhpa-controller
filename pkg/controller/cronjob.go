@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
+	"time"
+
 	"github.com/AliyunContainerService/kubernetes-cronhpa-controller/pkg/apis/autoscaling/v1beta1"
 	"github.com/ringtail/go-cron"
-	"github.com/satori/go.uuid"
+	uuid "github.com/satori/go.uuid"
 	autoscalingapi "k8s.io/api/autoscaling/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -16,8 +19,6 @@ import (
 	scaleclient "k8s.io/client-go/scale"
 	log "k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"strings"
-	"time"
 )
 
 const (
@@ -56,6 +57,8 @@ type CronJobHPA struct {
 	id           string
 	name         string
 	DesiredSize  int32
+	MinSize      int32
+	MaxSize      int32
 	Plan         string
 	RunOnce      bool
 	scaler       scaleclient.ScalesGetter
@@ -177,25 +180,27 @@ func (ch *CronJobHPA) ScaleHPA() (msg string, err error) {
 
 	updateHPA := false
 
-	if ch.DesiredSize > hpa.Spec.MaxReplicas {
-		hpa.Spec.MaxReplicas = ch.DesiredSize
-		updateHPA = true
-	}
+	if (ch.MinSize <= ch.MaxSize) && (ch.MinSize > 0) {
+		if ch.MinSize != *hpa.Spec.MinReplicas {
+			*hpa.Spec.MinReplicas = ch.MinSize
+			updateHPA = true
+		}
+		if ch.MaxSize != hpa.Spec.MaxReplicas {
+			hpa.Spec.MaxReplicas = ch.MaxSize
+			updateHPA = true
+		}
+		if ch.DesiredSize > hpa.Spec.MaxReplicas {
+			hpa.Spec.MaxReplicas = ch.DesiredSize
+			*hpa.Spec.MinReplicas = ch.DesiredSize
+			updateHPA = true
+		}
 
-	if ch.DesiredSize < *hpa.Spec.MinReplicas {
-		*hpa.Spec.MinReplicas = ch.DesiredSize
-		updateHPA = true
-	}
-
-	//
-	if hpa.Status.CurrentReplicas == *hpa.Spec.MinReplicas && ch.DesiredSize < hpa.Status.CurrentReplicas {
-		*hpa.Spec.MinReplicas = ch.DesiredSize
-		updateHPA = true
-	}
-
-	if hpa.Status.CurrentReplicas < ch.DesiredSize {
-		*hpa.Spec.MinReplicas = ch.DesiredSize
-		updateHPA = true
+		if ch.DesiredSize <= hpa.Spec.MaxReplicas {
+			*hpa.Spec.MinReplicas = ch.DesiredSize
+			updateHPA = true
+		}
+	} else {
+		log.Errorf("failed to set target %s %s in %s namespace,please check minsize or maxsize or desiredsize", ch.TargetRef.RefKind, ch.TargetRef.RefName, ch.TargetRef.RefNamespace)
 	}
 
 	if updateHPA {
@@ -203,11 +208,6 @@ func (ch *CronJobHPA) ScaleHPA() (msg string, err error) {
 		if err != nil {
 			return "", err
 		}
-	}
-
-	if hpa.Status.CurrentReplicas >= ch.DesiredSize {
-		// skip change replicas and exit
-		return fmt.Sprintf("Skip scale replicas because HPA %s current replicas:%d >= desired replicas:%d.", hpa.Name, scale.Spec.Replicas, ch.DesiredSize), nil
 	}
 
 	msg = fmt.Sprintf("current replicas:%d, desired replicas:%d.", scale.Spec.Replicas, ch.DesiredSize)
@@ -295,6 +295,8 @@ func CronHPAJobFactory(instance *v1beta1.CronHorizontalPodAutoscaler, job v1beta
 		name:         job.Name,
 		Plan:         job.Schedule,
 		DesiredSize:  job.TargetSize,
+		MaxSize:      job.MaxSize,
+		MinSize:      job.MinSize,
 		RunOnce:      job.RunOnce,
 		scaler:       scaler,
 		mapper:       mapper,

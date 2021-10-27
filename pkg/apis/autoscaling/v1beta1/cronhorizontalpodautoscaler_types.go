@@ -38,6 +38,8 @@ type Job struct {
 	// job will only run once if enabled.
 	RunOnce    bool  `json:"runOnce,omitempty"`
 	TargetSize int32 `json:"targetSize"`
+	MinSize    int32 `json:"minSize"`
+	MaxSize    int32 `json:"maxSize"`
 }
 
 type ScaleTargetRef struct {

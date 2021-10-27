@@ -44,6 +44,12 @@ spec:
                   targetSize:
                     format: int32
                     type: integer
+                  MaxSize:
+                    format: int32
+                    type: integer
+                  MinSize:
+                    format: int32
+                    type: integer
                 required:
                 - name
                 - schedule
@@ -88,6 +94,12 @@ spec:
                   state:
                     type: string
                   targetSize:
+                    format: int32
+                    type: integer
+                  MaxSize:
+                    format: int32
+                    type: integer
+                  MinSize:
                     format: int32
                     type: integer
                 required:
