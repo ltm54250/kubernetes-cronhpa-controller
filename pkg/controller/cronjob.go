@@ -176,7 +176,7 @@ func (ch *CronJobHPA) ScaleHPA() (msg string, err error) {
 		log.Errorf("failed to found source target %s %s in %s namespace", ch.TargetRef.RefKind, ch.TargetRef.RefName, ch.TargetRef.RefNamespace)
 		return "", fmt.Errorf("failed to found source target %s %s in %s namespace", ch.TargetRef.RefKind, ch.TargetRef.RefName, ch.TargetRef.RefNamespace)
 	}
-
+	desRunningReplicaNum := hpa.Status.CurrentReplicas
 	updateHPA := false
 	if (ch.DesiredSize <= ch.MaxSize) && (ch.DesiredSize >= 0) {
 		if (ch.DesiredSize != 0) && (ch.DesiredSize != *hpa.Spec.MinReplicas) {
@@ -205,7 +205,13 @@ func (ch *CronJobHPA) ScaleHPA() (msg string, err error) {
 
 	msg = fmt.Sprintf("current replicas:%d, desired replicas:%d.", scale.Spec.Replicas, ch.DesiredSize)
 	if ch.DesiredSize > 0 {
-		scale.Spec.Replicas = int32(ch.DesiredSize)
+		if desRunningReplicaNum >= hpa.Spec.MaxReplicas {
+			desRunningReplicaNum = hpa.Spec.MaxReplicas
+		}
+		if desRunningReplicaNum <= *hpa.Spec.MinReplicas {
+			desRunningReplicaNum = ch.DesiredSize
+		}
+		scale.Spec.Replicas = int32(desRunningReplicaNum)
 		_, err = ch.scaler.Scales(ch.TargetRef.RefNamespace).Update(context.Background(), targetGR, scale, metav1.UpdateOptions{})
 		if err != nil {
 			return "", fmt.Errorf("failed to scale %s %s in %s namespace to %d, because of %v", ch.TargetRef.RefKind, ch.TargetRef.RefName, ch.TargetRef.RefNamespace, ch.DesiredSize, err)
